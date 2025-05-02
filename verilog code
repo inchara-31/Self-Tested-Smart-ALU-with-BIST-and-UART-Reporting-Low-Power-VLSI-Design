@@ -1,0 +1,108 @@
+module smart_alu_bist_top (
+    input clk,
+    input rst,
+    input bist_enable,
+    input [3:0] real_a,
+    input [3:0] real_b,
+    input [1:0] real_op,
+    output [3:0] result,
+    output led_pass,
+    output led_fail,
+    output uart_tx
+);
+
+    wire [3:0] alu_a, alu_b;
+    wire [1:0] alu_op;
+    wire [3:0] alu_result;
+    wire bist_done, bist_pass;
+    wire [3:0] lfsr_a, lfsr_b;
+    wire [1:0] lfsr_op;
+
+    // ALU
+    alu_4bit U1 (.a(alu_a), .b(alu_b), .op(alu_op), .result(alu_result));
+
+    // BIST Controller
+    bist_controller U2 (
+        .clk(clk), .rst(rst), .enable(bist_enable),
+        .alu_result(alu_result),
+        .lfsr_out_a(lfsr_a), .lfsr_out_b(lfsr_b), .lfsr_op(lfsr_op),
+        .bist_done(bist_done), .bist_pass(bist_pass)
+    );
+
+    // Mode selector
+    assign alu_a = (bist_enable) ? lfsr_a : real_a;
+    assign alu_b = (bist_enable) ? lfsr_b : real_b;
+    assign alu_op = (bist_enable) ? lfsr_op : real_op;
+    assign result = alu_result;
+
+    // UART TX + LED
+    uart_tx_module UART (
+        .clk(clk), .send(bist_done), .pass(bist_pass), .tx(uart_tx)
+    );
+
+    assign led_pass = (bist_done && bist_pass);
+    assign led_fail = (bist_done && !bist_pass);
+
+endmodule
+
+// Simple 4-bit ALU
+module alu_4bit(input [3:0] a, b, input [1:0] op, output reg [3:0] result);
+    always @(*) begin
+        case (op)
+            2'b00: result = a + b;
+            2'b01: result = a - b;
+            2'b10: result = a & b;
+            2'b11: result = a | b;
+        endcase
+    end
+endmodule
+
+// LFSR-based BIST controller
+module bist_controller(
+    input clk, rst, enable,
+    input [3:0] alu_result,
+    output reg [3:0] lfsr_out_a, lfsr_out_b,
+    output reg [1:0] lfsr_op,
+    output reg bist_done,
+    output reg bist_pass
+);
+    reg [7:0] lfsr;
+    reg [3:0] expected;
+    integer count;
+
+    always @(posedge clk or posedge rst) begin
+        if (rst) begin
+            lfsr <= 8'b10101010;
+            count <= 0;
+            bist_done <= 0;
+            bist_pass <= 1;
+        end else if (enable && !bist_done) begin
+            lfsr <= {lfsr[6:0], lfsr[7] ^ lfsr[5]};
+            lfsr_out_a <= lfsr[3:0];
+            lfsr_out_b <= lfsr[7:4];
+            lfsr_op <= lfsr[1:0];
+
+            // Simple test oracle: only test ADD (op=00)
+            if (lfsr[1:0] == 2'b00) begin
+                expected <= lfsr[3:0] + lfsr[7:4];
+                if (alu_result != expected) bist_pass <= 0;
+            end
+
+            count <= count + 1;
+            if (count == 16) bist_done <= 1;
+        end
+    end
+endmodule
+
+// UART TX Stub (simulate pass/fail output)
+module uart_tx_module(
+    input clk,
+    input send,
+    input pass,
+    output reg tx
+);
+    always @(posedge clk) begin
+        if (send) tx <= pass; // Simplified UART TX (1 = pass, 0 = fail)
+        else tx <= 1'b1;
+    end
+endmodule
