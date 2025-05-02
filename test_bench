@@ -1,0 +1,47 @@
+`timescale 1ns / 1ps
+
+module smart_alu_bist_tb;
+    reg clk, rst, bist_enable;
+    reg [3:0] real_a, real_b;
+    reg [1:0] real_op;
+    wire [3:0] result;
+    wire led_pass, led_fail;
+    wire uart_tx;
+
+    smart_alu_bist_top DUT (
+        .clk(clk),
+        .rst(rst),
+        .bist_enable(bist_enable),
+        .real_a(real_a),
+        .real_b(real_b),
+        .real_op(real_op),
+        .result(result),
+        .led_pass(led_pass),
+        .led_fail(led_fail),
+        .uart_tx(uart_tx)
+    );
+
+    initial begin
+        clk = 0;
+        forever #5 clk = ~clk;
+    end
+
+    initial begin
+        rst = 1;
+        bist_enable = 0;
+        real_a = 4'b0011;
+        real_b = 4'b0101;
+        real_op = 2'b00;
+
+        #20 rst = 0;
+
+        // Run in normal ALU mode
+        #50 bist_enable = 0;
+        #100 real_op = 2'b01;
+
+        // Run in BIST mode
+        #100 bist_enable = 1;
+
+        #500 $stop;
+    end
+endmodule
